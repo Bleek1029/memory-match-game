@@ -1,0 +1,15 @@
+{
+  "name": "pairs-game",
+  "version": "1.0.0",
+  "description": "Multiplayer Pairs memory game with WebSockets",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js",
+    "stop": "for /f \"tokens=5\" %a in ('netstat -ano ^| findstr :3000 ^| findstr LISTENING') do @if %a NEQ 0 taskkill /f /pid %a"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "ws": "^8.14.2"
+  }
+}
