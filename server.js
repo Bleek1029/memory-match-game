@@ -18,7 +18,13 @@ app.get('/health', (req, res) => {
 });
 
 app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+  const indexPath = path.join(__dirname, 'public', 'index.html');
+  if (fs.existsSync(indexPath)) {
+    res.sendFile(indexPath);
+  } else {
+    // Fallback for different project structures
+    res.sendFile(path.join(__dirname, 'index.html'));
+  }
 });
 
 const rooms = new Map();
@@ -48,22 +54,23 @@ function broadcast(roomCode, message, excludeWs = null) {
   });
 }
 
-function send(player, message) {
-  if (player.ws.readyState === 1) {
-    console.log(`[SEND] Sending ${message.type} to ${player.name}`);
-    player.ws.send(JSON.stringify(message));
+// send() accepts either a player object { ws, name } or a raw WebSocket instance
+function send(target, message) {
+  const ws = target?.ws ?? target;
+  const name = target?.name ?? 'unknown';
+  if (ws?.readyState === 1) {
+    console.log(`[SEND] Sending ${message.type} to ${name}`);
+    ws.send(JSON.stringify(message));
     console.log(`[SEND] ${message.type} sent successfully`);
   } else {
-    console.log(`[SEND] FAILED - ws not ready (state: ${player.ws.readyState}) for ${message.type}`);
+    console.log(`[SEND] FAILED - ws not ready (state: ${ws?.readyState}) for ${message.type}`);
   }
 }
 
 // Heartbeat to keep connections alive on Render (and other platforms with idle timeouts)
-// Render free tier has ~55-60s idle timeout, so use 45s interval
-const HEARTBEAT_INTERVAL = 45000; // 45 seconds
+const HEARTBEAT_INTERVAL = 10000; // 10 seconds for proxy keep-alive
 
 function startHeartbeat(ws) {
-  // Start heartbeat IMMEDIATELY to keep proxy happy (every 10s instead of 45s)
   const interval = setInterval(() => {
     if (ws.readyState === 1) {
       ws.send(JSON.stringify({ type: 'ping' }));
@@ -71,7 +78,7 @@ function startHeartbeat(ws) {
     } else {
       clearInterval(interval);
     }
-  }, 10000); // 10 second interval for proxy keep-alive
+  }, HEARTBEAT_INTERVAL);
 
   ws.on('close', () => clearInterval(interval));
   return interval;
@@ -131,9 +138,8 @@ function handleMessage(ws, message, player, roomCode) {
     }
 
     case 'rematch': {
-      if (player.id === 0) {
-        startGame(roomCode);
-      }
+      // Allow either player (or host) to trigger rematch
+      startGame(roomCode);
       break;
     }
 
@@ -149,7 +155,8 @@ function startGame(roomCode) {
   if (!room || room.players.length < 2) return;
 
   const symbols = ['★', '♥', '♦', '♣', '♠', '●', '■', '▲', '◆', '○'];
-  const pairCount = room.config.pairCount || 8;
+  // Clamp pairCount to available symbols
+  const pairCount = Math.min(room.config.pairCount || 8, symbols.length);
   const selectedSymbols = symbols.slice(0, pairCount);
 
   const cards = [];
@@ -299,115 +306,117 @@ wss.on('connection', (ws) => {
       }
 
       function notifyJoined(room, code) {
-    room.players.forEach((player, index) => {
-      send(player, {
-        type: 'joined',
-        playerId: index,
-        name: player.name || `Player ${index + 1}`,
-        isHost: index === 0
-      });
-    });
-    if (room.players.length === 2) {
-      room.host = room.players[0];
-      startGame(code);
-    }
-  }
-
-  if (message.type === 'createRoom') {
-    let code;
-    do {
-      code = generateRoomCode();
-    } while (rooms.has(code));
-
-    const pairCount = message.pairCount || 8;
-    rooms.set(code, {
-      code,
-      config: { pairCount },
-      players: [],
-      host: null,
-      gameState: null
-    });
-
-    currentRoom = code;
-    currentPlayer = { ws, name: message.name || 'Player 1', id: 0 };
-    rooms.get(code).players.push(currentPlayer);
-
-    send(currentPlayer, { type: 'roomCreated', code, isHost: true });
-    console.log(`[CREATE] roomCreated sent, calling notifyJoined`);
-    notifyJoined(rooms.get(code), code);
-    console.log(`[CREATE] notifyJoined done`);
-  }
-  else if (message.type === 'joinRoom') {
-    const code = message.code.toUpperCase();
-    const room = rooms.get(code);
-
-    console.log(`[JOIN] Room ${code} exists:`, !!room, 'players:', room?.players?.length);
-    if (!room) {
-      send(ws, { type: 'error', message: 'Room not found' });
-      return;
-    }
-
-    if (room.players.length >= 2) {
-      send(ws, { type: 'error', message: 'Room is full' });
-      return;
-    }
-
-    currentRoom = code;
-    currentPlayer = { ws, name: message.name || 'Player 2', id: room.players.length };
-    room.players.push(currentPlayer);
-
-    console.log(`[JOIN] Sending roomJoined to player ${currentPlayer.id}`);
-    send(currentPlayer, { type: 'roomJoined', code, isHost: false });
-    console.log(`[JOIN] roomJoined sent, calling notifyJoined`);
-    notifyJoined(room, code);
-    console.log(`[JOIN] notifyJoined done`);
-  }
-  else if (message.type === 'rejoin') {
-    const code = message.code.toUpperCase();
-    const room = rooms.get(code);
-
-    if (!room) {
-      ws.send(JSON.stringify({ type: 'error', message: 'Room not found' }));
-      return;
-    }
-
-    // Find existing player by name
-    let existingPlayer = room.players.find(p => p.name === message.name);
-    if (existingPlayer) {
-      // Replace the old websocket with the new one
-      existingPlayer.ws = ws;
-      currentRoom = code;
-      currentPlayer = existingPlayer;
-
-      // Send current game state
-      if (room.gameState) {
-        const deck = room.gameState.cards.map(c => ['★', '♥', '♦', '♣', '♠', '●', '■', '▲', '◆', '○'].indexOf(c.symbol));
-        send(currentPlayer, {
-          type: 'gameStart',
-          deck: deck,
-          names: room.players.map(p => p.name),
-          playerId: existingPlayer.id
+        room.players.forEach((player, index) => {
+          send(player, {
+            type: 'joined',
+            playerId: index,
+            name: player.name || `Player ${index + 1}`,
+            isHost: index === 0
+          });
         });
-        // Also send current turn and scores
-        send(currentPlayer, {
-          type: 'turnResult',
-          match: false,
-          firstCardId: -1,
-          secondCardId: -1,
-          symbol: '',
-          currentTurn: room.gameState.currentTurn,
-          scores: room.gameState.scores,
-          pairsFound: room.gameState.pairsFound
-        });
-      } else {
-        // Still in lobby
-        send(currentPlayer, { type: 'roomJoined', code, isHost: existingPlayer.id === 0 });
-        notifyJoined(room, code);
+        if (room.players.length === 2) {
+          room.host = room.players[0];
+          startGame(code);
+        }
       }
-    } else {
-      ws.send(JSON.stringify({ type: 'error', message: 'Player not found in room' }));
-    }
-  }
+
+      if (message.type === 'createRoom') {
+        let code;
+        do {
+          code = generateRoomCode();
+        } while (rooms.has(code));
+
+        const pairCount = Math.min(message.pairCount || 8, 10); // Clamp to max symbols
+        rooms.set(code, {
+          code,
+          config: { pairCount },
+          players: [],
+          host: null,
+          gameState: null
+        });
+
+        currentRoom = code;
+        currentPlayer = { ws, name: message.name || 'Player 1', id: 0 };
+        rooms.get(code).players.push(currentPlayer);
+
+        // Include playerId: 0 in roomCreated
+        send(currentPlayer, { type: 'roomCreated', code, playerId: 0, isHost: true });
+        console.log(`[CREATE] roomCreated sent, calling notifyJoined`);
+        notifyJoined(rooms.get(code), code);
+        console.log(`[CREATE] notifyJoined done`);
+      }
+      else if (message.type === 'joinRoom') {
+        const code = message.code.toUpperCase();
+        const room = rooms.get(code);
+
+        console.log(`[JOIN] Room ${code} exists:`, !!room, 'players:', room?.players?.length);
+        if (!room) {
+          send(ws, { type: 'error', message: 'Room not found' });
+          return;
+        }
+
+        if (room.players.length >= 2) {
+          send(ws, { type: 'error', message: 'Room is full' });
+          return;
+        }
+
+        currentRoom = code;
+        currentPlayer = { ws, name: message.name || 'Player 2', id: room.players.length };
+        room.players.push(currentPlayer);
+
+        // Include playerId in roomJoined
+        console.log(`[JOIN] Sending roomJoined to player ${currentPlayer.id}`);
+        send(currentPlayer, { type: 'roomJoined', code, playerId: currentPlayer.id, isHost: false });
+        console.log(`[JOIN] roomJoined sent, calling notifyJoined`);
+        notifyJoined(room, code);
+        console.log(`[JOIN] notifyJoined done`);
+      }
+      else if (message.type === 'rejoin') {
+        const code = message.code.toUpperCase();
+        const room = rooms.get(code);
+
+        if (!room) {
+          ws.send(JSON.stringify({ type: 'error', message: 'Room not found' }));
+          return;
+        }
+
+        // Find existing player by name
+        let existingPlayer = room.players.find(p => p.name === message.name);
+        if (existingPlayer) {
+          // Replace the old websocket with the new one
+          existingPlayer.ws = ws;
+          currentRoom = code;
+          currentPlayer = existingPlayer;
+
+          // Send current game state
+          if (room.gameState) {
+            const deck = room.gameState.cards.map(c => ['★', '♥', '♦', '♣', '♠', '●', '■', '▲', '◆', '○'].indexOf(c.symbol));
+            send(currentPlayer, {
+              type: 'gameStart',
+              deck: deck,
+              names: room.players.map(p => p.name),
+              playerId: existingPlayer.id
+            });
+            // Also send current turn and scores
+            send(currentPlayer, {
+              type: 'turnResult',
+              match: false,
+              firstCardId: -1,
+              secondCardId: -1,
+              symbol: '',
+              currentTurn: room.gameState.currentTurn,
+              scores: room.gameState.scores,
+              pairsFound: room.gameState.pairsFound
+            });
+          } else {
+            // Still in lobby
+            send(currentPlayer, { type: 'roomJoined', code, playerId: existingPlayer.id, isHost: existingPlayer.id === 0 });
+            notifyJoined(room, code);
+          }
+        } else {
+          ws.send(JSON.stringify({ type: 'error', message: 'Player not found in room' }));
+        }
+      }
       else if (currentRoom && currentPlayer) {
         handleMessage(ws, message, currentPlayer, currentRoom);
       }

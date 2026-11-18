@@ -381,7 +381,7 @@ $('#go').onclick=async()=>{
     ws = new WebSocket(`${protocol}//${location.host}`);
 
     // Timeout if server doesn't respond (20s for Render cold starts)
-    const joinTimeout = setTimeout(() => {
+    let joinTimeout = setTimeout(() => {
       if (ws && ws.readyState === 1) {
         console.log(`[JOIN] Attempt ${joinAttempt} timeout - no response`);
         ws.close(); // Will trigger onclose
@@ -390,7 +390,7 @@ $('#go').onclick=async()=>{
 
     ws.onopen = () => {
       console.log('WS connected, sending', join ? 'joinRoom' : 'createRoom');
-      send({ type: join ? 'joinRoom' : 'createRoom', code: currentRoom, pairCount: cfg.size, name: names[me] });
+      send({ type: join ? 'joinRoom' : 'createRoom', code: currentRoom, pairCount: cfg.size / 2, name: names[me] });
     };
 
     ws.onmessage = (event) => {
@@ -537,7 +537,8 @@ function onMessage(msg){
     case 'roomCreated':
       console.log('[CLIENT] roomCreated received, showing lobby');
       isHost = true;
-      me = data.playerId;
+      currentRoom = data.code; // Use server-authoritative room code
+      me = data.playerId ?? 0;
       $('#codeShow').textContent=currentRoom;$('#roomTag').textContent='Room '+currentRoom;$('#copy').hidden=false;
       $('#lobbyMsg').textContent='Waiting for your opponent. Ask them to choose Join a room and type this code.';
       updateConnectionStatus('connected');
@@ -547,7 +548,7 @@ function onMessage(msg){
     case 'roomJoined':
       console.log('[CLIENT] roomJoined received, showing lobby');
       isHost = false;
-      me = data.playerId;
+      me = data.playerId ?? 1;
       $('#codeShow').textContent=currentRoom;$('#roomTag').textContent='Room '+currentRoom;$('#copy').hidden=true;
       $('#lobbyMsg').textContent='Connected. Starting game...';
       updateConnectionStatus('connected');
@@ -622,37 +623,22 @@ function paint(msg){
   $('#status').innerHTML=`<i></i><span>${esc(msg)}</span>`;
 }
 function remoteFlip(data){
-  if(!G||!Number.isInteger(data.cardId)||!G.deck[data.cardId]||G.turn===me)return;
-  if(G.lock){pending.push(data.cardId);return}
-  flip(data.cardId);
+  if(!G||!Number.isInteger(data.cardId)||!G.deck[data.cardId])return;
+  const c = G.deck[data.cardId];
+  if(c.st !== 'down')return;
+  c.st = 'up';
+  document.querySelector(`.card[data-id="${data.cardId}"]`).classList.replace('down','up');
+  labels();
 }
 $('#board').addEventListener('click',e=>{
   const el=e.target.closest('.card');if(!el||!G||G.lock||gone||G.turn!==me)return;
   const id=+el.dataset.id;if(G.deck[id].st!=='down')return;
-  send({type:'flip',cardId:id});flip(id);
+  send({type:'flip',cardId:id});
+  flip(id);
 });
 function flip(id){
   const c=G.deck[id];if(!c||c.st!=='down')return;
-  c.st='up';document.querySelector(`.card[data-id="${id}"]`).classList.replace('down','up');G.picks.push(c);labels();
-  if(G.picks.length<2)return;
-  G.lock=true;const my=gen,[a,b]=G.picks,hit=a.s===b.s;
-  setTimeout(()=>{
-    if(my!==gen||!G)return;
-    G.picks=[];
-    if(hit){
-      const p=G.players[G.turn];p.score++;G.left--;
-      [a,b].forEach(x=>{x.st='done';x.own=G.turn;const n=document.querySelector(`.card[data-id="${x.id}"]`);n.classList.replace('up','done');n.style.setProperty('--own',p.color)});
-      labels();
-      const ch=$('#chip'+G.turn);ch.classList.remove('bump');void ch.offsetWidth;ch.classList.add('bump');
-      if(G.left===0){paint('All pairs found.');return setTimeout(()=>my===gen&&finish(),900)}
-      paint(G.turn===me?'You found a pair. Go again.':`${p.name} found a pair.`);
-    }else{
-      [a,b].forEach(x=>{x.st='down';document.querySelector(`.card[data-id="${x.id}"]`).classList.replace('up','down')});
-      labels();G.turn=1-G.turn;
-      paint(`No match. ${G.turn===me?'Your turn.':`${G.players[G.turn].name}'s turn.`}`);
-    }
-    G.lock=false;const q=pending;pending=[];q.forEach(remoteFlip);
-  },hit?650:1100);
+  c.st='up';document.querySelector(`.card[data-id="${id}"]`).classList.replace('down','up');labels();
 }
 function handleTurnResult(data){
   if(!G)return;
@@ -668,7 +654,6 @@ function handleTurnResult(data){
     document.querySelector(`.card[data-id="${second}"]`).classList.replace('up','done');
     document.querySelector(`.card[data-id="${first}"]`).style.setProperty('--own',G.players[data.currentTurn].color);
     document.querySelector(`.card[data-id="${second}"]`).style.setProperty('--own',G.players[data.currentTurn].color);
-    G.players[data.currentTurn].score = data.scores[data.currentTurn];
     G.left--;
     labels();
     const ch=$('#chip'+data.currentTurn);ch.classList.remove('bump');void ch.offsetWidth;ch.classList.add('bump');
@@ -678,8 +663,10 @@ function handleTurnResult(data){
     document.querySelector(`.card[data-id="${second}"]`).classList.replace('up','down');
     labels();
   }
+  // Always set both players' scores directly from server-authoritative data.scores
+  G.players[0].score = data.scores[0];
+  G.players[1].score = data.scores[1];
   G.turn = data.currentTurn;
-  G.scores = data.scores;
   G.pairsFound = data.pairsFound;
 
   if(data.pairsFound === G.left + data.pairsFound){
@@ -708,8 +695,9 @@ function finish(data){
   $('#end').showModal();
 }
 $('#again').onclick=()=>{
-  if(isHost)deal();
-  else{send({type:'rematch'});$('#again').disabled=true;$('#again').textContent='Asked the host...'}
+  send({type:'rematch'});
+  $('#again').disabled=true;
+  $('#again').textContent='Starting new game...';
 };
 </script>
 </body>
