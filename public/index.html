@@ -341,10 +341,31 @@ $('#go').onclick=async()=>{
   let joinAttempt = 0;
   const maxJoinAttempts = 4; // Initial + 3 retries
 
-  function attemptJoin() {
+  // Wake up server with HTTP request first (helps with Render cold starts)
+  async function wakeUpServer() {
+    try {
+      const response = await fetch(`${location.protocol}//${location.host}/health`, {
+        method: 'GET',
+        cache: 'no-cache'
+      });
+      console.log('[WAKE] Server responded:', response.status);
+    } catch (e) {
+      console.log('[WAKE] Server wake request failed:', e.message);
+    }
+  }
+
+  async function attemptJoin() {
     joinAttempt++;
     console.log(`[JOIN] Attempt ${joinAttempt}/${maxJoinAttempts}`);
     showLoading(join ? `Joining room... (attempt ${joinAttempt})` : `Creating room... (attempt ${joinAttempt})`);
+
+    // Wake up server first (helps with Render cold starts)
+    if (joinAttempt === 1) {
+      $('#lobbyMsg').textContent = 'Waking up server...';
+      await wakeUpServer();
+      // Give server a moment to fully start
+      await new Promise(r => setTimeout(r, 2000));
+    }
 
     ws = new WebSocket(`${protocol}//${location.host}`);
 
