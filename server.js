@@ -226,47 +226,64 @@ wss.on('connection', (ws) => {
     try {
       const message = JSON.parse(data.toString());
 
-      if (message.type === 'createRoom') {
-        let code;
-        do {
-          code = generateRoomCode();
-        } while (rooms.has(code));
+      function notifyJoined(room, code) {
+    room.players.forEach((player, index) => {
+      send(player, {
+        type: 'joined',
+        playerId: index,
+        name: player.name || `Player ${index + 1}`,
+        isHost: index === 0
+      });
+    });
+    if (room.players.length === 2) {
+      room.host = room.players[0];
+      startGame(code);
+    }
+  }
 
-        const pairCount = message.pairCount || 8;
-        rooms.set(code, {
-          code,
-          config: { pairCount },
-          players: [],
-          host: null,
-          gameState: null
-        });
+  if (message.type === 'createRoom') {
+    let code;
+    do {
+      code = generateRoomCode();
+    } while (rooms.has(code));
 
-        currentRoom = code;
-        currentPlayer = { ws, name: '', id: -1 };
-        rooms.get(code).players.push(currentPlayer);
+    const pairCount = message.pairCount || 8;
+    rooms.set(code, {
+      code,
+      config: { pairCount },
+      players: [],
+      host: null,
+      gameState: null
+    });
 
-        send(currentPlayer, { type: 'roomCreated', code, isHost: true });
-      }
-      else if (message.type === 'joinRoom') {
-        const code = message.code.toUpperCase();
-        const room = rooms.get(code);
+    currentRoom = code;
+    currentPlayer = { ws, name: message.name || 'Player 1', id: -1 };
+    rooms.get(code).players.push(currentPlayer);
 
-        if (!room) {
-          send(ws, { type: 'error', message: 'Room not found' });
-          return;
-        }
+    send(currentPlayer, { type: 'roomCreated', code, isHost: true });
+    notifyJoined(rooms.get(code), code);
+  }
+  else if (message.type === 'joinRoom') {
+    const code = message.code.toUpperCase();
+    const room = rooms.get(code);
 
-        if (room.players.length >= 2) {
-          send(ws, { type: 'error', message: 'Room is full' });
-          return;
-        }
+    if (!room) {
+      send(ws, { type: 'error', message: 'Room not found' });
+      return;
+    }
 
-        currentRoom = code;
-        currentPlayer = { ws, name: '', id: -1 };
-        room.players.push(currentPlayer);
+    if (room.players.length >= 2) {
+      send(ws, { type: 'error', message: 'Room is full' });
+      return;
+    }
 
-        send(currentPlayer, { type: 'roomJoined', code, isHost: false });
-      }
+    currentRoom = code;
+    currentPlayer = { ws, name: message.name || 'Player 2', id: -1 };
+    room.players.push(currentPlayer);
+
+    send(currentPlayer, { type: 'roomJoined', code, isHost: false });
+    notifyJoined(room, code);
+  }
       else if (currentRoom && currentPlayer) {
         handleMessage(ws, message, currentPlayer, currentRoom);
       }
