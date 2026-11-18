@@ -154,11 +154,20 @@ dialog .sec{background:none}
 </div>
 
 <script>
-// Hide initial loader once page is interactive
+// Hide initial loader after minimum display time (500ms) + idle callback
+const initLoader=document.getElementById('initLoader');
+const hideLoader=()=>{initLoader.hidden=true};
+const minTime=500;
+const start=Date.now();
+function tryHide(){
+  const elapsed=Date.now()-start;
+  if(elapsed>=minTime){hideLoader()}
+  else{setTimeout(tryHide,minTime-elapsed)}
+}
 if('requestIdleCallback' in window){
-  requestIdleCallback(()=>{document.getElementById('initLoader').hidden=true});
+  requestIdleCallback(tryHide);
 }else{
-  setTimeout(()=>{document.getElementById('initLoader').hidden=true},0);
+  setTimeout(tryHide,0);
 }
 </script>
 
