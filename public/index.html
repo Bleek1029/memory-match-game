@@ -157,7 +157,7 @@ dialog .sec{background:none}
 // Hide initial loader after minimum display time (500ms) + idle callback
 const initLoader=document.getElementById('initLoader');
 const hideLoader=()=>{initLoader.hidden=true};
-const minTime=500;
+const minTime=4000;
 const start=Date.now();
 function tryHide(){
   const elapsed=Date.now()-start;
