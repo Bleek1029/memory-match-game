@@ -63,22 +63,18 @@ function send(player, message) {
 const HEARTBEAT_INTERVAL = 45000; // 45 seconds
 
 function startHeartbeat(ws) {
-  // Start heartbeat after a short delay to avoid issues during initial connection
-  const timeout = setTimeout(() => {
-    const interval = setInterval(() => {
-      if (ws.readyState === 1) {
-        ws.send(JSON.stringify({ type: 'ping' }));
-      } else {
-        clearInterval(interval);
-      }
-    }, HEARTBEAT_INTERVAL);
+  // Start heartbeat IMMEDIATELY to keep proxy happy (every 10s instead of 45s)
+  const interval = setInterval(() => {
+    if (ws.readyState === 1) {
+      ws.send(JSON.stringify({ type: 'ping' }));
+      console.log(`[HEARTBEAT] Sent ping`);
+    } else {
+      clearInterval(interval);
+    }
+  }, 10000); // 10 second interval for proxy keep-alive
 
-    ws.on('close', () => clearInterval(interval));
-    return interval;
-  }, 5000); // 5 second delay before starting heartbeat
-
-  ws.on('close', () => clearTimeout(timeout));
-  return timeout;
+  ws.on('close', () => clearInterval(interval));
+  return interval;
 }
 
 function handleMessage(ws, message, player, roomCode) {
@@ -291,6 +287,11 @@ wss.on('connection', (ws) => {
       const message = JSON.parse(data.toString());
       console.log(`[MSG] Room: ${currentRoom}, Type: ${message.type}, Player: ${currentPlayer?.name || 'none'}, Data:`, JSON.stringify(message).slice(0, 200));
       console.log(`[MSG] About to process ${message.type}`);
+
+      // Send immediate processing ack to keep proxy alive during processing
+      if (message.type === 'createRoom' || message.type === 'joinRoom') {
+        send(currentPlayer || { ws }, { type: 'processing', message: 'Processing request...' });
+      }
 
       // Handle pong from client
       if (message.type === 'pong') {

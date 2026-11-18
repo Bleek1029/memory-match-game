@@ -406,6 +406,19 @@ $('#go').onclick=async()=>{
         console.log('[CLIENT] Server ack received, connection established');
         return;
       }
+      // Handle processing ack - clear timeout, server is working
+      if (msg.type === 'processing') {
+        console.log('[CLIENT] Server processing request...');
+        clearTimeout(joinTimeout);
+        // Extend timeout since server is actively processing
+        joinTimeout = setTimeout(() => {
+          if (ws && ws.readyState === 1) {
+            console.log(`[JOIN] Attempt ${joinAttempt} timeout - no response after processing`);
+            ws.close();
+          }
+        }, 15000);
+        return;
+      }
       // Clear timeout on first response
       if (msg.type === 'roomCreated' || msg.type === 'roomJoined' || msg.type === 'error') {
         clearTimeout(joinTimeout);
