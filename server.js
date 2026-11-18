@@ -141,13 +141,14 @@ function startGame(roomCode) {
     totalPairs: pairCount
   };
 
+  // Create deck array with just symbol indices for client
+  const deck = cards.map(c => symbols.indexOf(c.symbol));
+
   room.players.forEach((player, index) => {
     send(player, {
       type: 'gameStart',
-      cards: cards.map(c => ({ id: c.id, symbol: c.symbol, state: c.state })),
-      currentTurn: 0,
-      scores: [0, 0],
-      playerNames: room.players.map(p => p.name),
+      deck: deck,
+      names: room.players.map(p => p.name),
       playerId: index
     });
   });
@@ -257,7 +258,7 @@ wss.on('connection', (ws) => {
     });
 
     currentRoom = code;
-    currentPlayer = { ws, name: message.name || 'Player 1', id: -1 };
+    currentPlayer = { ws, name: message.name || 'Player 1', id: 0 };
     rooms.get(code).players.push(currentPlayer);
 
     send(currentPlayer, { type: 'roomCreated', code, isHost: true });
@@ -278,7 +279,7 @@ wss.on('connection', (ws) => {
     }
 
     currentRoom = code;
-    currentPlayer = { ws, name: message.name || 'Player 2', id: -1 };
+    currentPlayer = { ws, name: message.name || 'Player 2', id: room.players.length };
     room.players.push(currentPlayer);
 
     send(currentPlayer, { type: 'roomJoined', code, isHost: false });
