@@ -340,6 +340,17 @@ $('#go').onclick=async()=>{
   const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
   ws = new WebSocket(`${protocol}//${location.host}`);
 
+  // Timeout if server doesn't respond
+  const joinTimeout = setTimeout(() => {
+    if (ws && ws.readyState === 1) {
+      console.log('Join timeout - no response from server');
+      hideLoading();
+      $('#go').disabled = false;
+      err(join ? 'Server did not respond. Check if room code is correct.' : 'Server did not respond. Try again.');
+      ws.close();
+    }
+  }, 10000);
+
   ws.onopen = () => {
     console.log('WS connected, sending', join ? 'joinRoom' : 'createRoom');
     send({ type: join ? 'joinRoom' : 'createRoom', code: currentRoom, pairCount: cfg.size, name: names[me] });
@@ -353,11 +364,16 @@ $('#go').onclick=async()=>{
       send({ type: 'pong' });
       return;
     }
+    // Clear timeout on first response
+    if (msg.type === 'roomCreated' || msg.type === 'roomJoined' || msg.type === 'error') {
+      clearTimeout(joinTimeout);
+    }
     onMessage(msg);
   };
 
   ws.onclose = (e) => {
     console.log('WS closed:', e.code, e.reason);
+    clearTimeout(joinTimeout);
     hideLoading();
     if (!G) {
       leave();
@@ -372,6 +388,7 @@ $('#go').onclick=async()=>{
 
   ws.onerror = (e) => {
     console.error('WS error:', e);
+    clearTimeout(joinTimeout);
     hideLoading();
     $('#go').disabled = false;
     err('Failed to connect to server');
@@ -449,22 +466,27 @@ function tryReconnect(){
 // Networking
 function onMessage(msg){
   const {type, ...data} = msg;
+  console.log('[CLIENT] onMessage:', type, data);
   switch(type){
     case 'roomCreated':
+      console.log('[CLIENT] roomCreated received, showing lobby');
       isHost = true;
       me = data.playerId;
       $('#codeShow').textContent=currentRoom;$('#roomTag').textContent='Room '+currentRoom;$('#copy').hidden=false;
       $('#lobbyMsg').textContent='Waiting for your opponent. Ask them to choose Join a room and type this code.';
       updateConnectionStatus('connected');
       hideLoading();show('lobby');
+      console.log('[CLIENT] lobby shown, hidden states:', {setup:$('#setup').hidden, lobby:$('#lobby').hidden, game:$('#game').hidden});
       break;
     case 'roomJoined':
+      console.log('[CLIENT] roomJoined received, showing lobby');
       isHost = false;
       me = data.playerId;
       $('#codeShow').textContent=currentRoom;$('#roomTag').textContent='Room '+currentRoom;$('#copy').hidden=true;
       $('#lobbyMsg').textContent='Connected. Starting game...';
       updateConnectionStatus('connected');
       hideLoading();show('lobby');
+      console.log('[CLIENT] lobby shown, hidden states:', {setup:$('#setup').hidden, lobby:$('#lobby').hidden, game:$('#game').hidden});
       break;
     case 'joined':
       names[data.playerId] = data.name;

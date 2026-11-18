@@ -300,6 +300,7 @@ wss.on('connection', (ws) => {
     const code = message.code.toUpperCase();
     const room = rooms.get(code);
 
+    console.log(`[JOIN] Room ${code} exists:`, !!room, 'players:', room?.players?.length);
     if (!room) {
       send(ws, { type: 'error', message: 'Room not found' });
       return;
@@ -314,6 +315,7 @@ wss.on('connection', (ws) => {
     currentPlayer = { ws, name: message.name || 'Player 2', id: room.players.length };
     room.players.push(currentPlayer);
 
+    console.log(`[JOIN] Sending roomJoined to player ${currentPlayer.id}`);
     send(currentPlayer, { type: 'roomJoined', code, isHost: false });
     notifyJoined(room, code);
   }
