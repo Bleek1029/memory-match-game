@@ -343,28 +343,39 @@ $('#go').onclick=async()=>{
 
   // Wake up server with HTTP request first (helps with Render cold starts)
   async function wakeUpServer() {
+    const start = Date.now();
     try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 15000); // 15s timeout for wake-up
       const response = await fetch(`${location.protocol}//${location.host}/health`, {
         method: 'GET',
-        cache: 'no-cache'
+        cache: 'no-cache',
+        signal: controller.signal
       });
-      console.log('[WAKE] Server responded:', response.status);
+      clearTimeout(timeout);
+      console.log(`[WAKE] Server responded: ${response.status} in ${Date.now() - start}ms`);
+      return true;
     } catch (e) {
-      console.log('[WAKE] Server wake request failed:', e.message);
+      console.log(`[WAKE] Server wake request failed after ${Date.now() - start}ms:`, e.message);
+      return false;
     }
   }
 
   async function attemptJoin() {
+    const attemptStart = Date.now();
     joinAttempt++;
-    console.log(`[JOIN] Attempt ${joinAttempt}/${maxJoinAttempts}`);
+    console.log(`[JOIN] Attempt ${joinAttempt}/${maxJoinAttempts} starting`);
     showLoading(join ? `Joining room... (attempt ${joinAttempt})` : `Creating room... (attempt ${joinAttempt})`);
 
     // Wake up server first (helps with Render cold starts)
     if (joinAttempt === 1) {
       $('#lobbyMsg').textContent = 'Waking up server...';
-      await wakeUpServer();
-      // Give server a moment to fully start
-      await new Promise(r => setTimeout(r, 2000));
+      const woke = await wakeUpServer();
+      console.log(`[JOIN] Wake up ${woke ? 'succeeded' : 'failed'}, waited ${Date.now() - attemptStart}ms total`);
+      if (woke) {
+        // Give server a moment to fully start
+        await new Promise(r => setTimeout(r, 3000));
+      }
     }
 
     ws = new WebSocket(`${protocol}//${location.host}`);
@@ -388,6 +399,11 @@ $('#go').onclick=async()=>{
       // Handle ping from server (heartbeat)
       if (msg.type === 'ping') {
         send({ type: 'pong' });
+        return;
+      }
+      // Handle server connection ack (proxy keep-alive)
+      if (msg.type === 'connected') {
+        console.log('[CLIENT] Server ack received, connection established');
         return;
       }
       // Clear timeout on first response

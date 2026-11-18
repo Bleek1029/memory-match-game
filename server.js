@@ -37,16 +37,24 @@ function broadcast(roomCode, message, excludeWs = null) {
   if (!room) return;
 
   const data = JSON.stringify(message);
+  console.log(`[BCAST] Broadcasting ${message.type} to room ${roomCode}`);
   room.players.forEach(player => {
     if (player.ws !== excludeWs && player.ws.readyState === 1) {
+      console.log(`[BCAST] Sending to ${player.name}`);
       player.ws.send(data);
+    } else {
+      console.log(`[BCAST] Skipping ${player.name} (ws: ${player.ws?.readyState}, exclude: ${player.ws === excludeWs})`);
     }
   });
 }
 
 function send(player, message) {
   if (player.ws.readyState === 1) {
+    console.log(`[SEND] Sending ${message.type} to ${player.name}`);
     player.ws.send(JSON.stringify(message));
+    console.log(`[SEND] ${message.type} sent successfully`);
+  } else {
+    console.log(`[SEND] FAILED - ws not ready (state: ${player.ws.readyState}) for ${message.type}`);
   }
 }
 
@@ -266,6 +274,11 @@ wss.on('connection', (ws) => {
 
   console.log('[CONN] New WebSocket connection');
 
+  // Send immediate ack to establish bidirectional flow (helps with proxies)
+  if (ws.readyState === 1) {
+    ws.send(JSON.stringify({ type: 'connected', timestamp: Date.now() }));
+  }
+
   // Start heartbeat to keep connection alive
   startHeartbeat(ws);
 
@@ -277,6 +290,7 @@ wss.on('connection', (ws) => {
     try {
       const message = JSON.parse(data.toString());
       console.log(`[MSG] Room: ${currentRoom}, Type: ${message.type}, Player: ${currentPlayer?.name || 'none'}, Data:`, JSON.stringify(message).slice(0, 200));
+      console.log(`[MSG] About to process ${message.type}`);
 
       // Handle pong from client
       if (message.type === 'pong') {
@@ -318,7 +332,9 @@ wss.on('connection', (ws) => {
     rooms.get(code).players.push(currentPlayer);
 
     send(currentPlayer, { type: 'roomCreated', code, isHost: true });
+    console.log(`[CREATE] roomCreated sent, calling notifyJoined`);
     notifyJoined(rooms.get(code), code);
+    console.log(`[CREATE] notifyJoined done`);
   }
   else if (message.type === 'joinRoom') {
     const code = message.code.toUpperCase();
@@ -341,7 +357,9 @@ wss.on('connection', (ws) => {
 
     console.log(`[JOIN] Sending roomJoined to player ${currentPlayer.id}`);
     send(currentPlayer, { type: 'roomJoined', code, isHost: false });
+    console.log(`[JOIN] roomJoined sent, calling notifyJoined`);
     notifyJoined(room, code);
+    console.log(`[JOIN] notifyJoined done`);
   }
   else if (message.type === 'rejoin') {
     const code = message.code.toUpperCase();
