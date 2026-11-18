@@ -46,19 +46,26 @@ function send(player, message) {
 }
 
 // Heartbeat to keep connections alive on Render (and other platforms with idle timeouts)
-const HEARTBEAT_INTERVAL = 25000; // 25 seconds
+// Render free tier has ~55-60s idle timeout, so use 45s interval
+const HEARTBEAT_INTERVAL = 45000; // 45 seconds
 
 function startHeartbeat(ws) {
-  const interval = setInterval(() => {
-    if (ws.readyState === 1) {
-      ws.send(JSON.stringify({ type: 'ping' }));
-    } else {
-      clearInterval(interval);
-    }
-  }, HEARTBEAT_INTERVAL);
+  // Start heartbeat after a short delay to avoid issues during initial connection
+  const timeout = setTimeout(() => {
+    const interval = setInterval(() => {
+      if (ws.readyState === 1) {
+        ws.send(JSON.stringify({ type: 'ping' }));
+      } else {
+        clearInterval(interval);
+      }
+    }, HEARTBEAT_INTERVAL);
 
-  ws.on('close', () => clearInterval(interval));
-  return interval;
+    ws.on('close', () => clearInterval(interval));
+    return interval;
+  }, 5000); // 5 second delay before starting heartbeat
+
+  ws.on('close', () => clearTimeout(timeout));
+  return timeout;
 }
 
 function handleMessage(ws, message, player, roomCode) {
@@ -373,7 +380,8 @@ wss.on('connection', (ws) => {
     }
   });
 
-  ws.on('close', () => {
+  ws.on('close', (code, reason) => {
+    console.log(`[CLOSE] Room: ${currentRoom}, Player: ${currentPlayer?.name}, Code: ${code}, Reason: ${reason?.toString() || 'none'}`);
     if (currentRoom && currentPlayer) {
       handleLeave(currentRoom, currentPlayer);
     }
