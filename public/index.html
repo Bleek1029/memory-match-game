@@ -391,7 +391,7 @@ function onMessage(msg){
       break;
     case 'joined':
       names[data.playerId] = data.name;
-      if(data.isHost) deal();
+      // Server auto-starts game when 2 players join, no need for client to trigger
       break;
     case 'gameStart':
       begin(data);
