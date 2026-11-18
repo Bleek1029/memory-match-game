@@ -243,6 +243,10 @@ if('requestIdleCallback' in window){
   </section>
   <div class="panel">
     <p class="pulse" id="lobbyMsg" role="status"></p>
+    <div id="connStatus" style="display:flex;align-items:center;gap:.5rem;font-size:.9rem;color:var(--muted);margin-top:.5rem">
+      <span id="connDot" style="width:8px;height:8px;border-radius:50%;background:var(--muted);transition:background .3s"></span>
+      <span id="connText">Connecting...</span>
+    </div>
     <button class="ghost" id="leaveLobby" type="button">Leave room</button>
   </div>
 </main>
@@ -344,6 +348,11 @@ $('#go').onclick=async()=>{
   ws.onmessage = (event) => {
     const msg = JSON.parse(event.data);
     console.log('WS received:', msg.type, msg);
+    // Handle ping from server (heartbeat)
+    if (msg.type === 'ping') {
+      send({ type: 'pong' });
+      return;
+    }
     onMessage(msg);
   };
 
@@ -353,6 +362,11 @@ $('#go').onclick=async()=>{
     if (!G) {
       leave();
       err('Connection lost');
+    } else {
+      // In game - try to reconnect
+      updateConnectionStatus('connecting');
+      $('#lobbyMsg').textContent='Connection lost. Reconnecting...';
+      tryReconnect();
     }
   };
 
@@ -375,6 +389,63 @@ function leave(){
 }
 $('#leaveLobby').onclick=leave;$('#back').onclick=leave;$('#change').onclick=leave;
 
+// Connection status
+function updateConnectionStatus(state){
+  const dot=$('#connDot'), txt=$('#connText');
+  if(!dot||!txt)return;
+  if(state==='connected'){
+    dot.style.background='#2EC4A6'; txt.textContent='Connected';
+  }else if(state==='connecting'){
+    dot.style.background='#F5B700'; txt.textContent='Connecting...';
+  }else{
+    dot.style.background='#F2542D'; txt.textContent='Disconnected';
+  }
+}
+
+// Reconnection logic
+let reconnectAttempts=0;
+const maxReconnectAttempts=5;
+function tryReconnect(){
+  if(reconnectAttempts>=maxReconnectAttempts){
+    updateConnectionStatus('disconnected');
+    $('#lobbyMsg').textContent='Connection failed. Please refresh and try again.';
+    return;
+  }
+  reconnectAttempts++;
+  updateConnectionStatus('connecting');
+  $('#lobbyMsg').textContent=`Reconnecting... (attempt ${reconnectAttempts}/${maxReconnectAttempts})`;
+
+  const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  ws = new WebSocket(`${protocol}//${location.host}`);
+
+  ws.onopen = () => {
+    console.log('WS reconnected, sending rejoin');
+    reconnectAttempts=0;
+    send({ type: 'rejoin', code: currentRoom, name: names[me] });
+  };
+
+  ws.onmessage = (event) => {
+    const msg = JSON.parse(event.data);
+    console.log('WS received:', msg.type, msg);
+    if (msg.type === 'ping') {
+      send({ type: 'pong' });
+      return;
+    }
+    onMessage(msg);
+  };
+
+  ws.onclose = (e) => {
+    console.log('WS closed:', e.code, e.reason);
+    if (!G) {
+      setTimeout(tryReconnect, 1000 * reconnectAttempts);
+    }
+  };
+
+  ws.onerror = (e) => {
+    console.error('WS error:', e);
+  };
+}
+
 // Networking
 function onMessage(msg){
   const {type, ...data} = msg;
@@ -384,13 +455,15 @@ function onMessage(msg){
       me = data.playerId;
       $('#codeShow').textContent=currentRoom;$('#roomTag').textContent='Room '+currentRoom;$('#copy').hidden=false;
       $('#lobbyMsg').textContent='Waiting for your opponent. Ask them to choose Join a room and type this code.';
+      updateConnectionStatus('connected');
       hideLoading();show('lobby');
       break;
     case 'roomJoined':
       isHost = false;
       me = data.playerId;
       $('#codeShow').textContent=currentRoom;$('#roomTag').textContent='Room '+currentRoom;$('#copy').hidden=true;
-      $('#lobbyMsg').textContent='Connected. Waiting for host to start...';
+      $('#lobbyMsg').textContent='Connected. Starting game...';
+      updateConnectionStatus('connected');
       hideLoading();show('lobby');
       break;
     case 'joined':

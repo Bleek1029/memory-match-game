@@ -45,6 +45,22 @@ function send(player, message) {
   }
 }
 
+// Heartbeat to keep connections alive on Render (and other platforms with idle timeouts)
+const HEARTBEAT_INTERVAL = 25000; // 25 seconds
+
+function startHeartbeat(ws) {
+  const interval = setInterval(() => {
+    if (ws.readyState === 1) {
+      ws.send(JSON.stringify({ type: 'ping' }));
+    } else {
+      clearInterval(interval);
+    }
+  }, HEARTBEAT_INTERVAL);
+
+  ws.on('close', () => clearInterval(interval));
+  return interval;
+}
+
 function handleMessage(ws, message, player, roomCode) {
   const room = rooms.get(roomCode);
   if (!room) return;
@@ -211,21 +227,37 @@ function handleLeave(roomCode, player) {
   const room = rooms.get(roomCode);
   if (!room) return;
 
-  const otherPlayer = room.players.find(p => p !== player);
+  // Mark player as disconnected instead of removing them
+  player.disconnected = true;
+  player.ws = null;
+
+  const otherPlayer = room.players.find(p => p !== player && !p.disconnected);
   if (otherPlayer) {
     send(otherPlayer, { type: 'opponentLeft' });
   }
 
-  rooms.delete(roomCode);
+  // Check if all players are disconnected - then clean up
+  const activePlayers = room.players.filter(p => !p.disconnected);
+  if (activePlayers.length === 0) {
+    rooms.delete(roomCode);
+  }
 }
 
 wss.on('connection', (ws) => {
   let currentRoom = null;
   let currentPlayer = null;
 
+  // Start heartbeat to keep connection alive
+  startHeartbeat(ws);
+
   ws.on('message', (data) => {
     try {
       const message = JSON.parse(data.toString());
+
+      // Handle pong from client
+      if (message.type === 'pong') {
+        return;
+      }
 
       function notifyJoined(room, code) {
     room.players.forEach((player, index) => {
@@ -284,6 +316,52 @@ wss.on('connection', (ws) => {
 
     send(currentPlayer, { type: 'roomJoined', code, isHost: false });
     notifyJoined(room, code);
+  }
+  else if (message.type === 'rejoin') {
+    const code = message.code.toUpperCase();
+    const room = rooms.get(code);
+
+    if (!room) {
+      ws.send(JSON.stringify({ type: 'error', message: 'Room not found' }));
+      return;
+    }
+
+    // Find existing player by name
+    let existingPlayer = room.players.find(p => p.name === message.name);
+    if (existingPlayer) {
+      // Replace the old websocket with the new one
+      existingPlayer.ws = ws;
+      currentRoom = code;
+      currentPlayer = existingPlayer;
+
+      // Send current game state
+      if (room.gameState) {
+        const deck = room.gameState.cards.map(c => ['★', '♥', '♦', '♣', '♠', '●', '■', '▲', '◆', '○'].indexOf(c.symbol));
+        send(currentPlayer, {
+          type: 'gameStart',
+          deck: deck,
+          names: room.players.map(p => p.name),
+          playerId: existingPlayer.id
+        });
+        // Also send current turn and scores
+        send(currentPlayer, {
+          type: 'turnResult',
+          match: false,
+          firstCardId: -1,
+          secondCardId: -1,
+          symbol: '',
+          currentTurn: room.gameState.currentTurn,
+          scores: room.gameState.scores,
+          pairsFound: room.gameState.pairsFound
+        });
+      } else {
+        // Still in lobby
+        send(currentPlayer, { type: 'roomJoined', code, isHost: existingPlayer.id === 0 });
+        notifyJoined(room, code);
+      }
+    } else {
+      ws.send(JSON.stringify({ type: 'error', message: 'Player not found in room' }));
+    }
   }
       else if (currentRoom && currentPlayer) {
         handleMessage(ws, message, currentPlayer, currentRoom);
