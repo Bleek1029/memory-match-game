@@ -358,11 +358,7 @@ $('#go').onclick=async()=>{
     $('#go').disabled = false;
     err('Failed to connect to server');
   };
-
-  $('#codeShow').textContent=c;$('#roomTag').textContent='Room '+c;$('#copy').hidden=!isHost;
-  $('#lobbyMsg').textContent=isHost?'Waiting for your opponent. Ask them to choose Join a room and type this code.':'Connecting...';
-  hideLoading();
-  show('lobby');
+  // Lobby shown in onMessage when roomCreated/roomJoined received
 };
 $('#copy').onclick=async()=>{const b=$('#copy');try{await navigator.clipboard.writeText($('#codeShow').textContent);b.textContent='Copied'}catch(e){b.textContent='Select the code to copy'}setTimeout(()=>b.textContent='Copy code',1800)};
 
@@ -382,12 +378,16 @@ function onMessage(msg){
     case 'roomCreated':
       isHost = true;
       me = data.playerId;
+      $('#codeShow').textContent=currentRoom;$('#roomTag').textContent='Room '+currentRoom;$('#copy').hidden=false;
       $('#lobbyMsg').textContent='Waiting for your opponent. Ask them to choose Join a room and type this code.';
+      hideLoading();show('lobby');
       break;
     case 'roomJoined':
       isHost = false;
       me = data.playerId;
+      $('#codeShow').textContent=currentRoom;$('#roomTag').textContent='Room '+currentRoom;$('#copy').hidden=true;
       $('#lobbyMsg').textContent='Connected. Waiting for host to start...';
+      hideLoading();show('lobby');
       break;
     case 'joined':
       names[data.playerId] = data.name;
