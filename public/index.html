@@ -337,15 +337,18 @@ $('#go').onclick=async()=>{
   ws = new WebSocket(`${protocol}//${location.host}`);
 
   ws.onopen = () => {
+    console.log('WS connected, sending', join ? 'joinRoom' : 'createRoom');
     send({ type: join ? 'joinRoom' : 'createRoom', code: currentRoom, pairCount: cfg.size, name: names[me] });
   };
 
   ws.onmessage = (event) => {
     const msg = JSON.parse(event.data);
+    console.log('WS received:', msg.type, msg);
     onMessage(msg);
   };
 
-  ws.onclose = () => {
+  ws.onclose = (e) => {
+    console.log('WS closed:', e.code, e.reason);
     hideLoading();
     if (!G) {
       leave();
@@ -353,7 +356,8 @@ $('#go').onclick=async()=>{
     }
   };
 
-  ws.onerror = () => {
+  ws.onerror = (e) => {
+    console.error('WS error:', e);
     hideLoading();
     $('#go').disabled = false;
     err('Failed to connect to server');
