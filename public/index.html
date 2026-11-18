@@ -112,10 +112,6 @@ dialog .sec{background:none}
   .chip .s{font-size:1.6rem}.chip .s small{display:none}
   .chip.on{transform:translateY(-3px)}
 }
-@media (prefers-reduced-motion:reduce){
-  *,*::before,*::after{animation-duration:.01ms!important;transition-duration:.01ms!important}
-}
-
 /* Loading screen */
 .loading{position:fixed;inset:0;display:grid;place-items:center;background:rgba(20,28,69,.92);z-index:1000;backdrop-filter:blur(4px);transition:opacity .3s var(--ease)}
 .loading[hidden]{display:none}
