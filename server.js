@@ -132,7 +132,7 @@ function handleMessage(ws, message, player, roomCode) {
 
       if (room.gameState.flippedCards.length === 2) {
         room.gameState.lock = true;
-        setTimeout(() => checkMatch(roomCode), 1000);
+        setTimeout(() => checkMatch(roomCode), 500);
       }
       break;
     }
