@@ -13,7 +13,7 @@
 :root,:root[data-theme="dark"],:root[data-theme="light"]{
   --table:#141C45;--table-2:#1B2557;--back:#2D3C9B;--dot:#4A5BC4;--paper:#F2EEE3;--ink:#141C45;
   --muted:#9AA3D6;--line:rgba(242,238,227,.14);
-  --p0:#F2542D;--p1:#F5B700;--p2:#2EC4A6;--p3:#FF8FB1;--turn:var(--p0);
+  --p0:#F2542D;--p1:#F5B700;--p2:#2EC4A6;--p3:#FF8FB1;--turn:var(--p0);--gold:#F5B700;
   --ease:cubic-bezier(.16,1,.3,1);--back-ease:cubic-bezier(.34,1.56,.64,1);
   --font:"Bricolage Grotesque",ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;
   box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);
@@ -140,26 +140,61 @@ dialog .sec{background:none}
 .board.idle .card.down{cursor:default}
 @media (hover:hover){.board.idle .card.down:hover .in{transform:none}}
 .ghost:disabled,dialog button:disabled{opacity:.5;cursor:default}
+
+/* Initial page load loader - card flip animation */
+.init-loader{position:fixed;inset:0;display:grid;place-items:center;background:var(--table) radial-gradient(rgba(242,238,227,.07) 1.2px,transparent 1.4px) 0 0/18px 18px;z-index:1001;padding:20px}
+.init-loader[hidden]{display:none}
+.init-loader main{display:grid;justify-items:center;gap:1.5rem;text-align:center}
+.init-grid{display:grid;grid-template-columns:repeat(2,clamp(72px,18vw,110px));gap:14px}
+.init-card{aspect-ratio:4/5;perspective:500px}
+.init-card i{display:block;position:relative;width:100%;height:100%;transform-style:preserve-3d;animation:flip 2.4s var(--ease) infinite;animation-delay:var(--d)}
+.init-card b,.init-card u{position:absolute;inset:0;border-radius:12px;backface-visibility:hidden;-webkit-backface-visibility:hidden;text-decoration:none}
+.init-card b{background:var(--back) radial-gradient(var(--dot) 1.4px,transparent 1.8px) 0 0/10px 10px;box-shadow:inset 0 0 0 3px rgba(242,238,227,.12)}
+.init-card u{transform:rotateY(180deg);background:var(--paper);display:grid;place-items:center}
+.init-card u svg{width:66%;height:auto}
+@keyframes flip{0%,22%{transform:rotateY(0)}40%,68%{transform:rotateY(180deg)}86%,100%{transform:rotateY(360deg)}}
+.init-loader h1{font-size:clamp(3.4rem,14vw,6rem);font-weight:800;letter-spacing:-.05em;line-height:.9;margin:.3rem 0 0;font-variation-settings:"opsz" 96}
+.init-bar{width:min(240px,60vw);height:4px;border-radius:4px;background:var(--line);overflow:hidden}
+.init-bar span{display:block;height:100%;width:100%;border-radius:4px;background:var(--gold);transform:scaleX(0);transform-origin:left;animation:fill 2.4s var(--ease) forwards}
+@keyframes fill{to{transform:scaleX(1)}}
+.init-msg{margin:0;color:var(--muted);min-height:1.5em}
+@media (prefers-reduced-motion:reduce){.init-card i{animation:none}.init-bar span{animation:none;transform:none}}
+
 </style>
 </head>
 <body>
 
 <div class="init-loader" id="initLoader" role="status" aria-live="polite" aria-label="Loading game">
-  <div class="init-spinner"></div>
-  <p class="init-text">Loading Pairs...</p>
+  <main>
+    <div class="init-grid" aria-hidden="true">
+      <div class="init-card"><i style="--d:0.0s"><b></b><u><svg viewBox="0 0 100 100" aria-hidden="true"><circle cx="50" cy="50" r="32" fill="#F2542D"/><circle cx="50" cy="50" r="13" fill="#141C45"/></svg></u></i></div>
+      <div class="init-card"><i style="--d:0.18s"><b></b><u><svg viewBox="0 0 100 100" aria-hidden="true"><path d="M50 10 62 37 91 41 70 61 75 90 50 76 25 90 30 61 9 41 38 37Z" fill="#F5B700"/><circle cx="50" cy="52" r="8" fill="#F2542D"/></svg></u></i></div>
+      <div class="init-card"><i style="--d:0.36s"><b></b><u><svg viewBox="0 0 100 100" aria-hidden="true"><rect x="18" y="18" width="64" height="64" rx="8" fill="#2EC4A6"/><rect x="38" y="38" width="24" height="24" fill="#141C45" transform="rotate(45 50 50)"/></svg></u></i></div>
+      <div class="init-card"><i style="--d:0.54s"><b></b><u><svg viewBox="0 0 100 100" aria-hidden="true"><path d="M50 90C16 66 8 42 24 26c11-11 24-6 26 5 2-11 15-16 26-5 16 16 8 40-26 64Z" fill="#FF8FB1"/></svg></u></i></div>
+    </div>
+    <h1>Pairs</h1>
+    <div class="init-bar" aria-hidden="true"><span></span></div>
+    <p class="init-msg" id="initMsg">Shuffling the deck…</p>
+  </main>
 </div>
 
 <script>
-// Hide initial loader after minimum display time (500ms) + idle callback
+// Hide initial loader after animation completes (~2.5s) + min time
 const initLoader=document.getElementById('initLoader');
-const hideLoader=()=>{initLoader.hidden=true};
-const minTime=4000;
+const initMsg=document.getElementById('initMsg');
+const minTime=2800;
 const start=Date.now();
 function tryHide(){
   const elapsed=Date.now()-start;
-  if(elapsed>=minTime){hideLoader()}
-  else{setTimeout(tryHide,minTime-elapsed)}
+  if(elapsed>=minTime){
+    initLoader.hidden=true;
+  }else{
+    setTimeout(tryHide,minTime-elapsed);
+  }
 }
+setTimeout(()=>{
+  initMsg.textContent='The deck is ready.';
+},2500);
 if('requestIdleCallback' in window){
   requestIdleCallback(tryHide);
 }else{
