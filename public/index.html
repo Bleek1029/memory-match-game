@@ -340,16 +340,16 @@ $('#go').onclick=async()=>{
   const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
   ws = new WebSocket(`${protocol}//${location.host}`);
 
-  // Timeout if server doesn't respond
+  // Timeout if server doesn't respond (20s for Render cold starts)
   const joinTimeout = setTimeout(() => {
     if (ws && ws.readyState === 1) {
       console.log('Join timeout - no response from server');
       hideLoading();
       $('#go').disabled = false;
-      err(join ? 'Server did not respond. Check if room code is correct.' : 'Server did not respond. Try again.');
+      err(join ? 'Server did not respond (may be waking up). Try again in a few seconds.' : 'Server did not respond. Try again.');
       ws.close();
     }
-  }, 10000);
+  }, 20000);
 
   ws.onopen = () => {
     console.log('WS connected, sending', join ? 'joinRoom' : 'createRoom');

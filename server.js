@@ -250,9 +250,15 @@ function handleLeave(roomCode, player) {
   }
 }
 
+wss.on('error', (err) => {
+  console.error('[WSS ERROR]', err);
+});
+
 wss.on('connection', (ws) => {
   let currentRoom = null;
   let currentPlayer = null;
+
+  console.log('[CONN] New WebSocket connection');
 
   // Start heartbeat to keep connection alive
   startHeartbeat(ws);
@@ -260,6 +266,7 @@ wss.on('connection', (ws) => {
   ws.on('message', (data) => {
     try {
       const message = JSON.parse(data.toString());
+      console.log(`[MSG] Room: ${currentRoom}, Type: ${message.type}, Player: ${currentPlayer?.name || 'none'}`);
 
       // Handle pong from client
       if (message.type === 'pong') {
