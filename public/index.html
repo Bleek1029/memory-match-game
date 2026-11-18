@@ -338,61 +338,77 @@ $('#go').onclick=async()=>{
   names=['Player 1','Player 2'];names[me]=clean($('#me').value)||names[me];
 
   const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-  ws = new WebSocket(`${protocol}//${location.host}`);
+  let joinAttempt = 0;
+  const maxJoinAttempts = 4; // Initial + 3 retries
 
-  // Timeout if server doesn't respond (20s for Render cold starts)
-  const joinTimeout = setTimeout(() => {
-    if (ws && ws.readyState === 1) {
-      console.log('Join timeout - no response from server');
-      hideLoading();
-      $('#go').disabled = false;
-      err(join ? 'Server did not respond (may be waking up). Try again in a few seconds.' : 'Server did not respond. Try again.');
-      ws.close();
-    }
-  }, 20000);
+  function attemptJoin() {
+    joinAttempt++;
+    console.log(`[JOIN] Attempt ${joinAttempt}/${maxJoinAttempts}`);
+    showLoading(join ? `Joining room... (attempt ${joinAttempt})` : `Creating room... (attempt ${joinAttempt})`);
 
-  ws.onopen = () => {
-    console.log('WS connected, sending', join ? 'joinRoom' : 'createRoom');
-    send({ type: join ? 'joinRoom' : 'createRoom', code: currentRoom, pairCount: cfg.size, name: names[me] });
-  };
+    ws = new WebSocket(`${protocol}//${location.host}`);
 
-  ws.onmessage = (event) => {
-    const msg = JSON.parse(event.data);
-    console.log('WS received:', msg.type, msg);
-    // Handle ping from server (heartbeat)
-    if (msg.type === 'ping') {
-      send({ type: 'pong' });
-      return;
-    }
-    // Clear timeout on first response
-    if (msg.type === 'roomCreated' || msg.type === 'roomJoined' || msg.type === 'error') {
+    // Timeout if server doesn't respond (20s for Render cold starts)
+    const joinTimeout = setTimeout(() => {
+      if (ws && ws.readyState === 1) {
+        console.log(`[JOIN] Attempt ${joinAttempt} timeout - no response`);
+        ws.close(); // Will trigger onclose
+      }
+    }, 20000);
+
+    ws.onopen = () => {
+      console.log('WS connected, sending', join ? 'joinRoom' : 'createRoom');
+      send({ type: join ? 'joinRoom' : 'createRoom', code: currentRoom, pairCount: cfg.size, name: names[me] });
+    };
+
+    ws.onmessage = (event) => {
+      const msg = JSON.parse(event.data);
+      console.log('WS received:', msg.type, msg);
+      // Handle ping from server (heartbeat)
+      if (msg.type === 'ping') {
+        send({ type: 'pong' });
+        return;
+      }
+      // Clear timeout on first response
+      if (msg.type === 'roomCreated' || msg.type === 'roomJoined' || msg.type === 'error') {
+        clearTimeout(joinTimeout);
+        // Reset attempt counter on success
+        joinAttempt = 0;
+      }
+      onMessage(msg);
+    };
+
+    ws.onclose = (e) => {
+      console.log('WS closed:', e.code, e.reason, `attempt ${joinAttempt}/${maxJoinAttempts}`);
       clearTimeout(joinTimeout);
-    }
-    onMessage(msg);
-  };
+      // If we got a valid response, onMessage would have cleared the timeout and reset joinAttempt
+      if (!G && joinAttempt > 0 && joinAttempt < maxJoinAttempts) {
+        // Retry with exponential backoff: 2s, 4s, 8s
+        const delay = Math.min(1000 * Math.pow(2, joinAttempt), 8000);
+        console.log(`[JOIN] Retrying in ${delay}ms...`);
+        $('#lobbyMsg').textContent = `Server waking up... retrying in ${delay/1000}s (attempt ${joinAttempt+1}/${maxJoinAttempts})`;
+        updateConnectionStatus('connecting');
+        setTimeout(attemptJoin, delay);
+      } else if (!G && joinAttempt >= maxJoinAttempts) {
+        hideLoading();
+        $('#go').disabled = false;
+        err(join ? 'Server did not respond after multiple attempts. Please try again later.' : 'Server did not respond. Try again.');
+      } else if (G) {
+        // In game - try to reconnect
+        updateConnectionStatus('connecting');
+        $('#lobbyMsg').textContent='Connection lost. Reconnecting...';
+        tryReconnect();
+      }
+    };
 
-  ws.onclose = (e) => {
-    console.log('WS closed:', e.code, e.reason);
-    clearTimeout(joinTimeout);
-    hideLoading();
-    if (!G) {
-      leave();
-      err('Connection lost');
-    } else {
-      // In game - try to reconnect
-      updateConnectionStatus('connecting');
-      $('#lobbyMsg').textContent='Connection lost. Reconnecting...';
-      tryReconnect();
-    }
-  };
+    ws.onerror = (e) => {
+      console.error('WS error:', e);
+      clearTimeout(joinTimeout);
+      // Don't hide loading here - let onclose handle retry
+    };
+  }
 
-  ws.onerror = (e) => {
-    console.error('WS error:', e);
-    clearTimeout(joinTimeout);
-    hideLoading();
-    $('#go').disabled = false;
-    err('Failed to connect to server');
-  };
+  attemptJoin();
   // Lobby shown in onMessage when roomCreated/roomJoined received
 };
 $('#copy').onclick=async()=>{const b=$('#copy');try{await navigator.clipboard.writeText($('#codeShow').textContent);b.textContent='Copied'}catch(e){b.textContent='Select the code to copy'}setTimeout(()=>b.textContent='Copy code',1800)};

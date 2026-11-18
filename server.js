@@ -257,16 +257,21 @@ wss.on('error', (err) => {
 wss.on('connection', (ws) => {
   let currentRoom = null;
   let currentPlayer = null;
+  const connTime = Date.now();
 
   console.log('[CONN] New WebSocket connection');
 
   // Start heartbeat to keep connection alive
   startHeartbeat(ws);
 
+  ws.once('message', () => {
+    console.log(`[TIMING] First message received after ${Date.now() - connTime}ms`);
+  });
+
   ws.on('message', (data) => {
     try {
       const message = JSON.parse(data.toString());
-      console.log(`[MSG] Room: ${currentRoom}, Type: ${message.type}, Player: ${currentPlayer?.name || 'none'}`);
+      console.log(`[MSG] Room: ${currentRoom}, Type: ${message.type}, Player: ${currentPlayer?.name || 'none'}, Data:`, JSON.stringify(message).slice(0, 200));
 
       // Handle pong from client
       if (message.type === 'pong') {
